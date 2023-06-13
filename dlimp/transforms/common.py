@@ -1,8 +1,11 @@
-from typing import Any, Dict, TypeAlias, Callable
+from functools import partial
+from typing import Any, Dict, TypeAlias, Callable, Union, Literal
 import tensorflow as tf
 from absl import logging
 
-Transform: TypeAlias = Callable[[Dict[str, Any]], Dict[str, Any]]
+Transform: TypeAlias = Union[
+    Callable[[Dict[str, Any]], Dict[str, Any]], Literal["cache"]
+]
 
 
 def add_next_obs(traj: Dict[str, Any]) -> Dict[str, Any]:

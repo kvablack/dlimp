@@ -3,6 +3,10 @@ import tensorflow as tf
 from functools import partial
 import dlimp as dl
 
+# using 12 bits for trajectory length encoding allows for trajectories of length 4096, leaving 51 bits for the
+# trajectory index which allows for datasets of size 2^51 trajectories (over 2 quadrillion)
+_TRAJ_LEN_ENCODING_BITS = 12
+
 
 def make_dataset(
     path: str,
@@ -10,25 +14,32 @@ def make_dataset(
     seed: int = 0,
     batch_size: int,
     shuffle_buffer_size: int = 25000,
-    cache: bool = False,
-    traj_transforms: Sequence[dl.transforms.Transform] = (
-        dl.transforms.unflatten_dict,
-        dl.transforms.add_next_obs,
-    ),
     frame_transforms: Sequence[dl.transforms.Transform] = (
+        dl.transforms.unflatten_dict,
         dl.transforms.decode_images,
+        "cache",
     ),
+    traj_transforms: Sequence[dl.transforms.Transform] = (dl.transforms.add_next_obs,),
+    traj_transforms_first: bool = False,
 ) -> tf.data.Dataset:
-    """Get a tf.data.Dataset from a directory of tfrecord files.
+    """Create a tf.data.Dataset from a directory of tfrecord files.
+
+    The dataset is customizable by passing in a sequence of transforms to apply at the frame and trajectory level. A
+    transform is a function that operates on a dictionary of tensors, or the string "cache" to cache the dataset in
+    memory. Be careful when using "cache" as it will freeze any randomness from previous transforms.
 
     Args:
         path (str): Path to a directory containing tfrecord files. seed (int, optional): Random seed. Defaults to 0.
         seed (int, optional): Random seed for shuffling.
         batch_size (int): Batch size. shuffle_buffer_size (int, optional): Size of the shuffle buffer. Defaults to
             25000. Set to 1 to disable shuffling.
-        cache (bool, optional): Whether to cache the dataset in memory. Defaults to False.
-        traj_transforms (Sequence[transform], optional): A sequence of functions to apply at the trajectory level.
-        frame_transforms (Sequence[transform], optional): A sequence of functions to apply at the frame level.
+        frame_transforms (Sequence[Transform], optional): A sequence of transforms to apply at the frame level. A
+            transform is a function that operates on a dictionary of tensors, or the string "cache" to cache the dataset
+            in memory.
+        traj_transforms (Sequence[Transform], optional): A sequence of functions to apply at the trajectory level. A
+            transform is a function that operates on a dictionary of tensors, or the string "cache" to cache the dataset
+            in memory.
+        traj_transforms_first (bool, optional): Whether to apply the trajectory transforms before the frame transforms.
     """
     # get the tfrecord files
     paths = tf.io.gfile.glob(tf.io.gfile.join(path, "*.tfrecord"))
@@ -39,32 +50,77 @@ def make_dataset(
     # read the tfrecords (yields raw serialized examples)
     dataset = tf.data.TFRecordDataset(paths, num_parallel_reads=tf.data.AUTOTUNE)
 
+    options = tf.data.Options()
+    options.autotune.enabled = True
+    options.experimental_optimization.apply_default_optimizations = True
+    options.experimental_optimization.map_fusion = True
+    dataset = dataset.with_options(options)
+
     # decode the examples (yields trajectories)
     dataset = dataset.map(
         partial(_decode_example, type_spec=type_spec),
         num_parallel_calls=tf.data.AUTOTUNE,
+        deterministic=True,
     )
 
-    # cache all the dataloading
-    if cache:
-        dataset = dataset.cache()
+    # add a unique index and length metadata to each trajectory for the purpose of regrouping them later
+    dataset = dataset.enumerate().map(
+        _add_traj_metadata, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True
+    )
 
-    # apply trajectory transforms
-    for transform in traj_transforms:
-        dataset = dataset.map(transform, num_parallel_calls=tf.data.AUTOTUNE)
+    if traj_transforms_first:
+        # apply trajectory transforms
+        for transform in traj_transforms:
+            if transform == "cache":
+                dataset = dataset.cache()
+            else:
+                dataset = dataset.map(
+                    transform, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False
+                )
 
     # unbatch to get individual frames
     dataset = dataset.unbatch()
 
     # apply frame transforms
     for transform in frame_transforms:
-        dataset = dataset.map(transform, num_parallel_calls=tf.data.AUTOTUNE)
+        if transform == "cache":
+            dataset = dataset.cache()
+        else:
+            dataset = dataset.map(
+                transform,
+                num_parallel_calls=tf.data.AUTOTUNE,
+                deterministic=not traj_transforms_first,
+            )
 
-    dataset = dataset.repeat()
+    if not traj_transforms_first:
+        # regroup the frames into trajectories
+        dataset = dataset.group_by_window(
+            key_func=lambda x: tf.cast(x["_len"], tf.int64)
+            * (2**_TRAJ_LEN_ENCODING_BITS)
+            + x["_i"],
+            reduce_func=lambda k, d: d.batch(
+                k // (2**_TRAJ_LEN_ENCODING_BITS), num_parallel_calls=tf.data.AUTOTUNE
+            ),
+            window_size_func=lambda k: k // (2**_TRAJ_LEN_ENCODING_BITS),
+        )
+
+        # apply trajectory transforms
+        for transform in traj_transforms:
+            if transform == "cache":
+                dataset = dataset.cache()
+            else:
+                dataset = dataset.map(
+                    transform, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False
+                )
+
+        # unbatch to get individual frames again
+        dataset = dataset.unbatch()
 
     # shuffle the dataset
     if shuffle_buffer_size > 1:
         dataset = dataset.shuffle(shuffle_buffer_size, seed=seed)
+
+    dataset = dataset.repeat()
 
     # batch the dataset
     dataset = dataset.batch(batch_size, num_parallel_calls=tf.data.AUTOTUNE)
@@ -115,3 +171,20 @@ def _get_type_spec(path: str) -> Dict[str, tf.TensorSpec]:
         out[key] = tf.TensorSpec(shape=shape, dtype=dtype)
 
     return out
+
+
+def _add_traj_metadata(i: tf.Tensor, x: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
+    # get the length of each dict entry; the dict must still be flat at this point because no transforms
+    # have been applied
+    traj_lens = {k: tf.shape(v)[0] for k, v in x.items()}
+
+    # make sure all the lengths are the same
+    tf.assert_equal(tf.size(tf.unique(tf.stack(list(traj_lens.values()))).y), 1)
+    traj_len = list(traj_lens.values())[0]
+    tf.assert_less(traj_len, 2**_TRAJ_LEN_ENCODING_BITS)
+
+    assert "_i" not in x
+    assert "_len" not in x
+    x["_i"] = tf.repeat(i, traj_len)
+    x["_len"] = tf.repeat(traj_len, traj_len)
+    return x
