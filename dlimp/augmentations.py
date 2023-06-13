@@ -1,3 +1,4 @@
+from typing import Optional
 import tensorflow as tf
 
 
@@ -56,7 +57,16 @@ AUGMENT_OPS = {
 }
 
 
-def augment(image: tf.Tensor, seed: tf.Tensor, **augment_kwargs) -> tf.Tensor:
+def augment(image: tf.Tensor, seed: Optional[tf.Tensor] = None, **augment_kwargs) -> tf.Tensor:
+    """Unified image augmentation function for TensorFlow.
+
+    Args:
+        image: A `Tensor` of shape [height, width, channels] with the image. May be uint8 or float32 with values in [-1, 1].
+        seed (optional): A `Tensor` of shape [2] with the seed for the random number generator.
+        **augment_kwargs: Keyword arguments for the augmentation operations. The order of operations is determined by
+            the "augment_order" keyword argument.  Other keyword arguments are passed to the corresponding augmentation
+            operation. See above for a list of operations.
+    """
     # convert images to [0, 1]
     dtype = image.dtype
     if dtype == tf.float32:
@@ -66,6 +76,9 @@ def augment(image: tf.Tensor, seed: tf.Tensor, **augment_kwargs) -> tf.Tensor:
         image = tf.cast(image, tf.float32) / 255.0
     else:
         raise ValueError(f"Invalid image dtype: {image.dtype}")
+
+    if seed is None:
+        seed = tf.random.uniform([2], 0, 2 ** 31, dtype=tf.int32)
 
     for op in augment_kwargs["augment_order"]:
         if op in augment_kwargs:

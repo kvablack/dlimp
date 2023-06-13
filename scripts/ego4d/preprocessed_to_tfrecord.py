@@ -9,7 +9,6 @@ import os
 import numpy as np
 from absl import app, flags, logging
 import tqdm
-from multiprocessing import Pool
 from tqdm_multiprocess import TqdmMultiProcessPool
 from dlimp.utils import tensor_feature, read_resize_encode_image
 import pandas as pd

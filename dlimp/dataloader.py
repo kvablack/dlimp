@@ -1,11 +1,7 @@
-from typing import Any, Callable, Dict, Sequence
+from typing import Dict, Sequence
 import tensorflow as tf
 from functools import partial
-from dlimp import goal_relabeling
-from dlimp.utils import unflatten_dict, add_next_obs, decode_images
-
-
-transform = Callable[[Dict[str, Any]], Dict[str, Any]]
+import dlimp as dl
 
 
 def make_dataset(
@@ -15,12 +11,13 @@ def make_dataset(
     batch_size: int,
     shuffle_buffer_size: int = 25000,
     cache: bool = False,
-    traj_transforms: Sequence[transform] = (
-        unflatten_dict,
-        add_next_obs,
-        partial(goal_relabeling.uniform, reached_proportion=0.1),
+    traj_transforms: Sequence[dl.transforms.Transform] = (
+        dl.transforms.unflatten_dict,
+        dl.transforms.add_next_obs,
     ),
-    frame_transforms: Sequence[transform] = (decode_images,),
+    frame_transforms: Sequence[dl.transforms.Transform] = (
+        dl.transforms.decode_images,
+    ),
 ) -> tf.data.Dataset:
     """Get a tf.data.Dataset from a directory of tfrecord files.
 

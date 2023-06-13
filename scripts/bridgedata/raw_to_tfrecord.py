@@ -48,7 +48,8 @@ import tqdm
 import random
 from multiprocessing import Pool
 from tqdm_multiprocess import TqdmMultiProcessPool
-from dlimp.utils import flatten_dict, tensor_feature, read_resize_encode_image
+import dlimp as dl
+from dlimp.utils import tensor_feature, read_resize_encode_image
 
 FLAGS = flags.FLAGS
 
@@ -138,7 +139,10 @@ def create_tfrecord(paths, output_path, tqdm_func, global_tqdm):
 
             example = tf.train.Example(
                 features=tf.train.Features(
-                    feature={k: tensor_feature(v) for k, v in flatten_dict(out).items()}
+                    feature={
+                        k: tensor_feature(v)
+                        for k, v in dl.transforms.flatten_dict(out).items()
+                    }
                 )
             )
             writer.write(example.SerializeToString())

@@ -6,10 +6,11 @@ keys "goals" and "rewards". Keep in mind that "obs" and "next_obs" may themselve
 match their structure.
 """
 
+from typing import Dict, Any
 import tensorflow as tf
 
 
-def uniform(traj, reached_proportion):
+def uniform(traj: Dict[str, Any], reached_proportion: float):
     """Relabels with a true uniform distribution over future states. With probability reached_proportion,
     obs[i] gets a goal equal to next_obs[i].  In this case, the reward is 0. Otherwise,
     obs[i] gets a goal sampled uniformly from the set next_obs[i + 1:], and the reward is -1.
@@ -49,7 +50,7 @@ def uniform(traj, reached_proportion):
     return traj
 
 
-def last_state_upweighted(traj, reached_proportion):
+def last_state_upweighted(traj: Dict[str, Any], reached_proportion: float):
     """
     A weird relabeling scheme where the last state gets upweighted. For each transition i, a uniform random number is
     generated in the range [i + 1, i + traj_len). It then gets clipped to be less than traj_len. Therefore, the first
@@ -94,7 +95,7 @@ def last_state_upweighted(traj, reached_proportion):
     return traj
 
 
-def geometric(traj, reached_proportion, discount):
+def geometric(traj: Dict[str, Any], reached_proportion: float, discount: float):
     """
     Relabels with a geometric distribution over future states. With probability reached_proportion, obs[i] gets
     a goal equal to next_obs[i]. In this case, the reward is 0. Otherwise, obs[i] gets a goal sampled
