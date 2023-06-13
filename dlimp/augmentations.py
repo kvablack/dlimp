@@ -78,7 +78,7 @@ def augment(image: tf.Tensor, seed: Optional[tf.Tensor] = None, **augment_kwargs
         raise ValueError(f"Invalid image dtype: {image.dtype}")
 
     if seed is None:
-        seed = tf.random.uniform([2], 0, 2 ** 31, dtype=tf.int32)
+        seed = tf.random.uniform([2], 0, 2 ** 31 - 1, dtype=tf.int32)
 
     for op in augment_kwargs["augment_order"]:
         if op in augment_kwargs:
