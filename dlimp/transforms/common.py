@@ -41,14 +41,14 @@ def unflatten_dict(d: Dict[str, Any], sep="/") -> Dict[str, Any]:
     return unflattened
 
 
-def decode_images(x: Dict[str, Any], decode=False) -> Dict[str, Any]:
+def decode_images(x: Dict[str, Any], _decode=False) -> Dict[str, Any]:
     """Can operate on nested dicts. Decodes any leaves that are tf.string and have "image" anywhere in their path."""
     for key in x:
         if isinstance(x[key], dict):
-            x[key] = decode_images(x[key], decode=decode or "image" in key)
-        elif x[key].dtype == tf.string and (decode or "image" in key):
+            x[key] = decode_images(x[key], _decode=_decode or "image" in key)
+        elif x[key].dtype == tf.string and (_decode or "image" in key):
             if len(x[key].shape) == 0:
-                x[key] = tf.io.decode_image(x[key])
+                x[key] = tf.io.decode_image(x[key], expand_animations=False)
             else:
                 logging.warning(
                     "Using tf.map_fn to decode images. This is slow. "
@@ -56,7 +56,9 @@ def decode_images(x: Dict[str, Any], decode=False) -> Dict[str, Any]:
                     "even if it means repeating decode operations."
                 )
                 x[key] = tf.map_fn(
-                    tf.io.decode_image, x[key], fn_output_signature=tf.uint8
+                    partial(tf.io.decode_image, expand_animations=False),
+                    x[key],
+                    fn_output_signature=tf.uint8,
                 )
             # convert to float and normalize to [-1, 1]
             x[key] = tf.cast(x[key], tf.float32) / 127.5 - 1.0
