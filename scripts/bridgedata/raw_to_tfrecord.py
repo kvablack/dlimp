@@ -69,12 +69,11 @@ flags.DEFINE_integer("num_workers", 8, "Number of threads to use")
 flags.DEFINE_integer("shard_size", 200, "Maximum number of trajectories per shard")
 
 IMAGE_SIZE = (128, 128)
+CAMERA_VIEWS = {"images0"}
 
 
 def process_images(path):  # processes images at a trajectory level
-    image_dirs = sorted(
-        [x for x in os.listdir(str(path)) if "images" in x and not "depth" in x]
-    )
+    image_dirs = set(os.listdir(str(path))).intersection(CAMERA_VIEWS)
     image_paths = [
         sorted(
             glob.glob(os.path.join(path, image_dir, "im_*.jpg")),
