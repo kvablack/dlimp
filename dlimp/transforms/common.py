@@ -1,7 +1,9 @@
 from functools import partial
-from typing import Any, Dict, TypeAlias, Callable, Union, Literal
+from typing import Any, Dict, Tuple, TypeAlias, Callable, Union, Literal
 import tensorflow as tf
 from absl import logging
+from dlimp.augmentations import augment_image
+from dlimp.utils import resize_image
 
 Transform: TypeAlias = Union[
     Callable[[Dict[str, Any]], Dict[str, Any]], Literal["cache"]
@@ -44,25 +46,110 @@ def unflatten_dict(d: Dict[str, Any], sep="/") -> Dict[str, Any]:
     return unflattened
 
 
-def decode_images(x: Dict[str, Any], _decode=False) -> Dict[str, Any]:
-    """Can operate on nested dicts. Decodes any leaves that are tf.string and have "image" anywhere in their path."""
+def selective_tree_map(
+    x: Dict[str, Any],
+    match_fn: Callable[[str, Any], bool],
+    map_fn: Callable,
+    *,
+    _keypath: str = "",
+) -> Dict[str, Any]:
+    """Maps a function over a nested dictionary, only applying it leaves that match a criterion.
+
+    Args:
+        x (Dict[str, Any]): The dictionary to map over.
+        match (Callable[[str, Any], bool]): A function that takes a full key path separated by slashes as well as a
+            value and returns True if the function should be applied to that value.
+        fn (Callable): The function to apply.
+    """
     for key in x:
         if isinstance(x[key], dict):
-            x[key] = decode_images(x[key], _decode=_decode or "image" in key)
-        elif x[key].dtype == tf.string and (_decode or "image" in key):
-            if len(x[key].shape) == 0:
-                x[key] = tf.io.decode_image(x[key], expand_animations=False)
-            else:
-                logging.warning(
-                    "Using tf.map_fn to decode images. This is slow. "
-                    "Using decode_images as a frame_transform instead is recommended, "
-                    "even if it means repeating decode operations."
-                )
-                x[key] = tf.map_fn(
-                    partial(tf.io.decode_image, expand_animations=False),
-                    x[key],
-                    fn_output_signature=tf.uint8,
-                )
-            # convert to float and normalize to [-1, 1]
-            x[key] = tf.cast(x[key], tf.float32) / 127.5 - 1.0
+            x[key] = selective_tree_map(
+                x[key], match_fn, map_fn, _keypath=_keypath + key + "/"
+            )
+        elif match_fn(_keypath + key, x[key]):
+            x[key] = map_fn(x[key])
     return x
+
+
+def decode_images(x: Dict[str, Any], match_str: str = "image") -> Dict[str, Any]:
+    """Can operate on nested dicts. Decodes any leaves that have `match_str` anywhere in their path."""
+
+    def map_fn(value):
+        if len(value.shape) == 0:
+            return tf.io.decode_image(value, expand_animations=False)
+        else:
+            logging.warning(
+                "Using tf.map_fn to decode images. This is slow. "
+                "Using decode_images as a frame_transform instead is recommended, "
+                "even if it means repeating decode operations."
+            )
+            value = tf.map_fn(
+                partial(tf.io.decode_image, expand_animations=False),
+                value,
+                fn_output_signature=tf.uint8,
+            )
+
+    return selective_tree_map(
+        x,
+        lambda keypath, value: match_str in keypath and value.dtype == tf.string,
+        map_fn,
+    )
+
+
+def resize_images(
+    x: Dict[str, Any], match_str: str = "image", size: Tuple[int, int] = (128, 128)
+) -> Dict[str, Any]:
+    """Can operate on nested dicts. Resizes any leaves that have `match_str` anywhere in their path. Takes uint8 images
+    as input and returns float images (still in [0, 255]).
+    """
+
+    def map_fn(value):
+        if len(value.shape) == 3:
+            return resize_image(value, size=size)
+        else:
+            logging.warning(
+                "Using tf.map_fn to resize images. This is slow. "
+                "Using resize_images as a frame_transform instead is recommended, "
+                "even if it means repeating resize operations."
+            )
+            value = tf.map_fn(
+                partial(resize_image, size=size),
+                value,
+                fn_output_signature=tf.uint8,
+            )
+
+    return selective_tree_map(
+        x,
+        lambda keypath, value: match_str in keypath and value.dtype == tf.uint8,
+        map_fn,
+    )
+
+
+def augment(
+    x: Dict[str, Any],
+    match_str: str = "image",
+    traj_identical: bool = True,
+    augment_kwargs: dict = {},
+) -> Dict[str, Any]:
+    """
+    Augments the input dictionary `x` by applying image augmentation to all values whose keypath contains `match_str`.
+
+    Args:
+        x (Dict[str, Any]): The input dictionary to augment.
+        match_str (str, optional): The string to match in keypaths. Defaults to "image".
+        traj_identical (bool, optional): Whether to use the same random seed for all images in a trajectory.
+        augment_kwargs (dict, optional): Additional keyword arguments to pass to the `augment_image` function.
+    """
+
+    def map_fn(value):
+        if traj_identical:
+            seed = [x["_i"], x["_i"]]
+        else:
+            seed = None
+        return augment_image(value, seed=seed, **augment_kwargs)
+
+    return selective_tree_map(
+        x,
+        lambda keypath, value: match_str in keypath,
+        map_fn,
+    )

@@ -57,11 +57,13 @@ AUGMENT_OPS = {
 }
 
 
-def augment(image: tf.Tensor, seed: Optional[tf.Tensor] = None, **augment_kwargs) -> tf.Tensor:
+def augment_image(
+    image: tf.Tensor, seed: Optional[tf.Tensor] = None, **augment_kwargs
+) -> tf.Tensor:
     """Unified image augmentation function for TensorFlow.
 
     Args:
-        image: A `Tensor` of shape [height, width, channels] with the image. May be uint8 or float32 with values in [-1, 1].
+        image: A `Tensor` of shape [height, width, channels] with the image. May be uint8 or float32 with values in [0, 255].
         seed (optional): A `Tensor` of shape [2] with the seed for the random number generator.
         **augment_kwargs: Keyword arguments for the augmentation operations. The order of operations is determined by
             the "augment_order" keyword argument.  Other keyword arguments are passed to the corresponding augmentation
@@ -69,16 +71,10 @@ def augment(image: tf.Tensor, seed: Optional[tf.Tensor] = None, **augment_kwargs
     """
     # convert images to [0, 1]
     dtype = image.dtype
-    if dtype == tf.float32:
-        # assume images are in [-1, 1]
-        image = image * 0.5 + 0.5
-    elif dtype == tf.uint8:
-        image = tf.cast(image, tf.float32) / 255.0
-    else:
-        raise ValueError(f"Invalid image dtype: {image.dtype}")
+    image = tf.cast(image, tf.float32) / 255.0
 
     if seed is None:
-        seed = tf.random.uniform([2], 0, 2 ** 31 - 1, dtype=tf.int32)
+        seed = tf.random.uniform([2], 0, 2**31 - 1, dtype=tf.int32)
 
     for op in augment_kwargs["augment_order"]:
         if op in augment_kwargs:
@@ -91,9 +87,8 @@ def augment(image: tf.Tensor, seed: Optional[tf.Tensor] = None, **augment_kwargs
         image = tf.clip_by_value(image, 0, 1)
 
     # convert back to original dtype and scale
-    if dtype == tf.float32:
-        image = image * 2 - 1
-    else:
-        image = tf.cast(image * 255, dtype)
+    image *= 255
+    if dtype == tf.uint8:
+        image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.uint8)
 
     return image

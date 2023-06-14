@@ -44,6 +44,9 @@ def make_dataset(
     # get the tfrecord files
     paths = tf.io.gfile.glob(tf.io.gfile.join(path, "*.tfrecord"))
 
+    if shuffle_buffer_size > 1:
+        paths = tf.random.shuffle(paths, seed=seed)
+
     # extract the type spec from the first file
     type_spec = _get_type_spec(paths[0])
 
@@ -167,20 +170,26 @@ def _get_type_spec(path: str) -> Dict[str, tf.TensorSpec]:
         tensor_proto.ParseFromString(data)
         dtype = tf.dtypes.as_dtype(tensor_proto.dtype)
         shape = [d.size for d in tensor_proto.tensor_shape.dim]
-        shape[0] = None  # first dimension is trajectory length, which is variable
+        if shape:
+            shape[0] = None  # first dimension is trajectory length, which is variable
         out[key] = tf.TensorSpec(shape=shape, dtype=dtype)
 
     return out
 
 
 def _add_traj_metadata(i: tf.Tensor, x: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
-    # get the length of each dict entry; the dict must still be flat at this point because no transforms
-    # have been applied
-    traj_lens = {k: tf.shape(v)[0] for k, v in x.items()}
+    # get the length of each dict entry
+    traj_lens = {k: tf.shape(v)[0] if len(v.shape) > 0 else None for k, v in x.items()}
+    traj_len = next(l for l in traj_lens.values() if l is not None)
+
+    # broadcast scalars to the length of the trajectory
+    for k in x:
+        if traj_lens[k] is None:
+            x[k] = tf.repeat(x[k], traj_len)
+            traj_lens[k] = traj_len
 
     # make sure all the lengths are the same
     tf.assert_equal(tf.size(tf.unique(tf.stack(list(traj_lens.values()))).y), 1)
-    traj_len = list(traj_lens.values())[0]
     tf.assert_less(traj_len, 2**_TRAJ_LEN_ENCODING_BITS)
 
     assert "_i" not in x
