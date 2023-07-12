@@ -1,13 +1,30 @@
 from functools import partial
 from typing import Any, Dict, Tuple, TypeAlias, Callable, Union, Literal
+from collections.abc import Sequence
 import tensorflow as tf
 from absl import logging
 from dlimp.augmentations import augment_image
 from dlimp.utils import resize_image
 
-Transform: TypeAlias = Union[
-    Callable[[Dict[str, Any]], Dict[str, Any]], Literal["cache"]
-]
+Transform: TypeAlias = Union[Callable[[Dict[str, Any]], Dict[str, Any]], Literal["cache"]]
+
+
+def apply_transforms(
+    ds: tf.data.Dataset,
+    transforms: Sequence[Transform],
+    num_parallel_calls: int = tf.data.AUTOTUNE,
+    deterministic: bool = False,
+):
+    for transform in transforms:
+        if transform == "cache":
+            ds = ds.cache()
+        else:
+            ds = ds.map(
+                transform,
+                num_parallel_calls=num_parallel_calls,
+                deterministic=deterministic,
+            )
+    return ds
 
 
 def add_next_obs(traj: Dict[str, Any]) -> Dict[str, Any]:
@@ -63,9 +80,7 @@ def selective_tree_map(
     """
     for key in x:
         if isinstance(x[key], dict):
-            x[key] = selective_tree_map(
-                x[key], match_fn, map_fn, _keypath=_keypath + key + "/"
-            )
+            x[key] = selective_tree_map(x[key], match_fn, map_fn, _keypath=_keypath + key + "/")
         elif match_fn(_keypath + key, x[key]):
             x[key] = map_fn(x[key])
     return x
@@ -96,9 +111,7 @@ def decode_images(x: Dict[str, Any], match_str: str = "image") -> Dict[str, Any]
     )
 
 
-def resize_images(
-    x: Dict[str, Any], match_str: str = "image", size: Tuple[int, int] = (128, 128)
-) -> Dict[str, Any]:
+def resize_images(x: Dict[str, Any], match_str: str = "image", size: Tuple[int, int] = (128, 128)) -> Dict[str, Any]:
     """Can operate on nested dicts. Resizes any leaves that have `match_str` anywhere in their path. Takes uint8 images
     as input and returns float images (still in [0, 255]).
     """

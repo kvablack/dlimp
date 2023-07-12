@@ -3,9 +3,9 @@ import tensorflow as tf
 from functools import partial
 import dlimp as dl
 
-# using 12 bits for trajectory length encoding allows for trajectories of length 4096, leaving 51 bits for the
-# trajectory index which allows for datasets of size 2^51 trajectories (over 2 quadrillion)
-_TRAJ_LEN_ENCODING_BITS = 12
+# using 51 bits for trajectory index encoding allows for datasets of size 2^51 trajectories (over 2 quadrillion),
+# leaving 12 bits for the trajectory length which allows for trajectories of length 4096
+_TRAJ_IDX_ENCODING_BITS = 51
 
 
 def make_dataset(
@@ -67,54 +67,28 @@ def make_dataset(
     )
 
     # add a unique index and length metadata to each trajectory for the purpose of regrouping them later
-    dataset = dataset.enumerate().map(
-        _add_traj_metadata, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True
-    )
+    dataset = dataset.enumerate().map(_add_traj_metadata, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
 
     if traj_transforms_first:
         # apply trajectory transforms
-        for transform in traj_transforms:
-            if transform == "cache":
-                dataset = dataset.cache()
-            else:
-                dataset = dataset.map(
-                    transform, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False
-                )
+        dataset = dl.transforms.apply_transforms(dataset, traj_transforms, deterministic=False)
 
     # unbatch to get individual frames
     dataset = dataset.unbatch()
 
     # apply frame transforms
-    for transform in frame_transforms:
-        if transform == "cache":
-            dataset = dataset.cache()
-        else:
-            dataset = dataset.map(
-                transform,
-                num_parallel_calls=tf.data.AUTOTUNE,
-                deterministic=not traj_transforms_first,
-            )
+    dataset = dl.transforms.apply_transforms(dataset, frame_transforms, deterministic=not traj_transforms_first)
 
     if not traj_transforms_first:
         # regroup the frames into trajectories
         dataset = dataset.group_by_window(
-            key_func=lambda x: tf.cast(x["_len"], tf.int64)
-            * (2**_TRAJ_LEN_ENCODING_BITS)
-            + x["_i"],
-            reduce_func=lambda k, d: d.batch(
-                k // (2**_TRAJ_LEN_ENCODING_BITS), num_parallel_calls=tf.data.AUTOTUNE
-            ),
-            window_size_func=lambda k: k // (2**_TRAJ_LEN_ENCODING_BITS),
+            key_func=lambda x: tf.cast(x["_len"], tf.int64) * (2**_TRAJ_IDX_ENCODING_BITS) + x["_i"],
+            reduce_func=lambda k, d: d.batch(k // (2**_TRAJ_IDX_ENCODING_BITS), num_parallel_calls=tf.data.AUTOTUNE),
+            window_size_func=lambda k: k // (2**_TRAJ_IDX_ENCODING_BITS),
         )
 
         # apply trajectory transforms
-        for transform in traj_transforms:
-            if transform == "cache":
-                dataset = dataset.cache()
-            else:
-                dataset = dataset.map(
-                    transform, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False
-                )
+        dataset = dl.transforms.apply_transforms(dataset, traj_transforms, deterministic=False)
 
         # unbatch to get individual frames again
         dataset = dataset.unbatch()
@@ -134,15 +108,10 @@ def make_dataset(
     return dataset
 
 
-def _decode_example(
-    example_proto: tf.Tensor, type_spec: Dict[str, tf.TensorSpec]
-) -> Dict[str, tf.Tensor]:
+def _decode_example(example_proto: tf.Tensor, type_spec: Dict[str, tf.TensorSpec]) -> Dict[str, tf.Tensor]:
     features = {key: tf.io.FixedLenFeature([], tf.string) for key in type_spec.keys()}
     parsed_features = tf.io.parse_single_example(example_proto, features)
-    parsed_tensors = {
-        key: tf.io.parse_tensor(parsed_features[key], spec.dtype)
-        for key, spec in type_spec.items()
-    }
+    parsed_tensors = {key: tf.io.parse_tensor(parsed_features[key], spec.dtype) for key, spec in type_spec.items()}
 
     for key in parsed_tensors:
         parsed_tensors[key] = tf.ensure_shape(parsed_tensors[key], type_spec[key].shape)
@@ -180,20 +149,34 @@ def _get_type_spec(path: str) -> Dict[str, tf.TensorSpec]:
 def _add_traj_metadata(i: tf.Tensor, x: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
     # get the length of each dict entry
     traj_lens = {k: tf.shape(v)[0] if len(v.shape) > 0 else None for k, v in x.items()}
-    traj_len = next(l for l in traj_lens.values() if l is not None)
 
-    # broadcast scalars to the length of the trajectory
+    # take the maximum length as the canonical length (elements should either be the same length or length 1)
+    traj_len = tf.reduce_max([l for l in traj_lens.values() if l is not None])
+
     for k in x:
+        # broadcast scalars to the length of the trajectory
         if traj_lens[k] is None:
             x[k] = tf.repeat(x[k], traj_len)
             traj_lens[k] = traj_len
 
-    # make sure all the lengths are the same
-    tf.assert_equal(tf.size(tf.unique(tf.stack(list(traj_lens.values()))).y), 1)
-    tf.assert_less(traj_len, 2**_TRAJ_LEN_ENCODING_BITS)
+        # broadcast length-1 elements to the length of the trajectory
+        if traj_lens[k] == 1:
+            x[k] = tf.repeat(x[k], traj_len, axis=0)
+            traj_lens[k] = traj_len
+
+    k = tf.cast(traj_len, tf.int64) * (2**_TRAJ_IDX_ENCODING_BITS) + i
+    asserts = [
+        # make sure all the lengths are the same
+        tf.assert_equal(tf.size(tf.unique(tf.stack(list(traj_lens.values()))).y), 1),
+        # make sure the key encoding is working
+        tf.assert_equal(k % (2**_TRAJ_IDX_ENCODING_BITS), i),
+        tf.assert_equal(k // (2**_TRAJ_IDX_ENCODING_BITS), tf.cast(traj_len, tf.int64)),
+    ]
 
     assert "_i" not in x
     assert "_len" not in x
     x["_i"] = tf.repeat(i, traj_len)
     x["_len"] = tf.repeat(traj_len, traj_len)
-    return x
+
+    with tf.control_dependencies(asserts):
+        return x
