@@ -18,9 +18,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string("input_path", None, "Input path", required=True)
 flags.DEFINE_string("output_path", None, "Output path", required=True)
 flags.DEFINE_bool("overwrite", False, "Overwrite existing files")
-flags.DEFINE_float(
-    "train_proportion", 0.9, "Proportion of data to use for training (rather than val)"
-)
+flags.DEFINE_float("train_proportion", 0.9, "Proportion of data to use for training (rather than val)")
 flags.DEFINE_integer("num_workers", 8, "Number of threads to use")
 flags.DEFINE_integer("shard_size", 200, "Maximum number of trajectories per shard")
 
@@ -51,7 +49,7 @@ def create_tfrecord(manifest, output_path, tqdm_func, global_tqdm):
             features=tf.train.Features(
                 feature={
                     "obs": tensor_feature(images),
-                    "text": tensor_feature(row["text"]),
+                    "lang": tensor_feature(row["text"]),
                 }
             )
         )
@@ -89,32 +87,18 @@ def main(_):
     val_manifest = manifest.iloc[int(len(manifest) * FLAGS.train_proportion) :]
 
     # shard paths
-    train_shards = np.array_split(
-        train_manifest, np.ceil(len(train_manifest) / FLAGS.shard_size)
-    )
-    val_shards = np.array_split(
-        val_manifest, np.ceil(len(val_manifest) / FLAGS.shard_size)
-    )
+    train_shards = np.array_split(train_manifest, np.ceil(len(train_manifest) / FLAGS.shard_size))
+    val_shards = np.array_split(val_manifest, np.ceil(len(val_manifest) / FLAGS.shard_size))
 
     # create output paths
     tf.io.gfile.makedirs(os.path.join(FLAGS.output_path, "train"))
     tf.io.gfile.makedirs(os.path.join(FLAGS.output_path, "val"))
-    train_output_paths = [
-        os.path.join(FLAGS.output_path, "train", f"{i}.tfrecord")
-        for i in range(len(train_shards))
-    ]
-    val_output_paths = [
-        os.path.join(FLAGS.output_path, "val", f"{i}.tfrecord")
-        for i in range(len(val_shards))
-    ]
+    train_output_paths = [os.path.join(FLAGS.output_path, "train", f"{i}.tfrecord") for i in range(len(train_shards))]
+    val_output_paths = [os.path.join(FLAGS.output_path, "val", f"{i}.tfrecord") for i in range(len(val_shards))]
 
     # create tasks (see tqdm_multiprocess documenation)
-    tasks = [
-        (create_tfrecord, (train_shards[i], train_output_paths[i]))
-        for i in range(len(train_shards))
-    ] + [
-        (create_tfrecord, (val_shards[i], val_output_paths[i]))
-        for i in range(len(val_shards))
+    tasks = [(create_tfrecord, (train_shards[i], train_output_paths[i])) for i in range(len(train_shards))] + [
+        (create_tfrecord, (val_shards[i], val_output_paths[i])) for i in range(len(val_shards))
     ]
 
     # run tasks
