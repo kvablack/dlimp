@@ -5,6 +5,6 @@ setup(
     version="0.0.1",
     packages=["dlimp"],
     install_requires=[
-        "tensorflow==2.11.0", "tqdm", "tqdm-multiprocess==0.0.11"
+        "tensorflow>=2.13.0", "tqdm", "tqdm-multiprocess==0.0.11"
     ],
 )
