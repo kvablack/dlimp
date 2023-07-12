@@ -1,8 +1,8 @@
 """
 Contains goal relabeling and reward logic written in TensorFlow.
 
-Each relabeling function takes a trajectory with keys "obs" and "next_obs". It returns a new trajectory with the added
-keys "goals" and "rewards". Keep in mind that "obs" and "next_obs" may themselves be dictionaries, and "goals" must
+Each relabeling function takes a trajectory with keys `obs` and `next_obs`. It returns a new trajectory with the added
+keys `goals` and `rewards`. Keep in mind that `obs` and `next_obs` may themselves be dictionaries, and `goals` must
 match their structure.
 """
 
