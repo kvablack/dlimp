@@ -1,17 +1,16 @@
 from functools import partial
-from typing import Any, Dict, Tuple, TypeAlias, Callable, Union, Literal
-from collections.abc import Sequence
+from typing import Any, Dict, Tuple, Callable, Union, Literal, Iterable
 import tensorflow as tf
 from absl import logging
 from dlimp.augmentations import augment_image
 from dlimp.utils import resize_image
 
-Transform: TypeAlias = Union[Callable[[Dict[str, Any]], Dict[str, Any]], Literal["cache"]]
+Transform = Union[Callable[[Dict[str, Any]], Dict[str, Any]], Literal["cache"]]
 
 
 def apply_transforms(
     ds: tf.data.Dataset,
-    transforms: Sequence[Transform],
+    transforms: Iterable[Transform],
     num_parallel_calls: int = tf.data.AUTOTUNE,
     deterministic: bool = False,
 ):
