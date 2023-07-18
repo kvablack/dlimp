@@ -83,7 +83,9 @@ def selective_tree_map(
             out[key] = selective_tree_map(x[key], match_fn, map_fn, _keypath=_keypath + key + "/")
         elif match_fn(_keypath + key, x[key]):
             out[key] = map_fn(x[key])
-    return x
+        else:
+            out[key] = x[key]
+    return out
 
 
 def decode_images(x: Dict[str, Any], match_str: str = "image") -> Dict[str, Any]:
