@@ -77,11 +77,12 @@ def selective_tree_map(
             value and returns True if the function should be applied to that value.
         fn (Callable): The function to apply.
     """
+    out = {}
     for key in x:
         if isinstance(x[key], dict):
-            x[key] = selective_tree_map(x[key], match_fn, map_fn, _keypath=_keypath + key + "/")
+            out[key] = selective_tree_map(x[key], match_fn, map_fn, _keypath=_keypath + key + "/")
         elif match_fn(_keypath + key, x[key]):
-            x[key] = map_fn(x[key])
+            out[key] = map_fn(x[key])
     return x
 
 
