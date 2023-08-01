@@ -8,8 +8,10 @@ match their structure.
 
 from typing import Dict, Any
 import tensorflow as tf
+from .common import traj_transform
 
 
+@traj_transform
 def uniform(traj: Dict[str, Any], reached_proportion: float):
     """Relabels with a true uniform distribution over future states. With probability reached_proportion,
     obs[i] gets a goal equal to next_obs[i].  In this case, the reward is 0. Otherwise,
@@ -50,6 +52,7 @@ def uniform(traj: Dict[str, Any], reached_proportion: float):
     return traj
 
 
+@traj_transform
 def last_state_upweighted(traj: Dict[str, Any], reached_proportion: float):
     """
     A weird relabeling scheme where the last state gets upweighted. For each transition i, a uniform random number is
@@ -95,6 +98,7 @@ def last_state_upweighted(traj: Dict[str, Any], reached_proportion: float):
     return traj
 
 
+@traj_transform
 def geometric(traj: Dict[str, Any], reached_proportion: float, discount: float):
     """
     Relabels with a geometric distribution over future states. With probability reached_proportion, obs[i] gets
