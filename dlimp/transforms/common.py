@@ -1,8 +1,10 @@
-from functools import partial
-from typing import Any, Dict, Tuple, Callable, Optional
-from enum import Enum
-import tensorflow as tf
 import inspect
+from enum import Enum
+from functools import partial
+from typing import Any, Callable, Dict, Optional, Tuple
+
+import tensorflow as tf
+
 from dlimp.augmentations import augment_image
 from dlimp.utils import resize_image
 

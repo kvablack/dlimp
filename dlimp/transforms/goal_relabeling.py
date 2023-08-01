@@ -6,8 +6,10 @@ keys `goals` and `rewards`. Keep in mind that `obs` and `next_obs` may themselve
 match their structure.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 import tensorflow as tf
+
 from .common import traj_transform
 
 

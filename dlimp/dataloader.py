@@ -1,6 +1,8 @@
-from typing import Dict, Sequence
-import tensorflow as tf
 from functools import partial
+from typing import Dict, Sequence
+
+import tensorflow as tf
+
 import dlimp as dl
 
 
