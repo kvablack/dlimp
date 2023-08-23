@@ -55,11 +55,15 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         options.autotune.enabled = True
         options.experimental_optimization.apply_default_optimizations = True
         options.experimental_optimization.map_fusion = True
+        options.experimental_optimization.map_and_filter_fusion = True
+        # options.experimental_optimization.warm_start = True
         return self.with_options(options)
 
     @staticmethod
     def from_tfrecords(
-        dir_or_paths: Union[str, Sequence[str]], shuffle: bool = True
+        dir_or_paths: Union[str, Sequence[str]],
+        shuffle: bool = True,
+        num_parallel_reads: int = 8,
     ) -> "DLataset":
         """Creates a DLataset from tfrecord files. The type spec of the dataset is inferred from the first file. The
         only constraint is that each example must be a trajectory where each entry is either a scalar, a tensor of shape
@@ -86,7 +90,8 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
 
         # read the tfrecords (yields raw serialized examples)
         dataset = _wrap(tf.data.TFRecordDataset)(
-            paths, num_parallel_reads=tf.data.AUTOTUNE
+            paths,
+            num_parallel_reads=num_parallel_reads,
         )._apply_options()
 
         # decode the examples (yields trajectories)
@@ -114,7 +119,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         """Maps a function over the frames of the dataset. The function should take a single frame as input and return a
         single frame as output.
         """
-        return self.filter(lambda traj: tf.shape(tf.nest.flatten(traj)[0])[0] > 0).map(
+        return self.map(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj)
             .map(fn, num_parallel_calls=tf.data.AUTOTUNE)
             .batch(tf.cast(tf.shape(tf.nest.flatten(traj)[0])[0], tf.int64))

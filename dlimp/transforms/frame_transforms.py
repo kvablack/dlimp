@@ -47,6 +47,7 @@ def augment(
     x: Dict[str, Any],
     match: Union[str, Sequence[str]] = "image",
     traj_identical: bool = True,
+    keys_identical: bool = True,
     augment_kwargs: dict = {},
 ) -> Dict[str, Any]:
     """
@@ -56,14 +57,21 @@ def augment(
         x (Dict[str, Any]): The input dictionary to augment.
         match (str, optional): The string to match in keypaths. Defaults to "image".
         traj_identical (bool, optional): Whether to use the same random seed for all images in a trajectory.
+        keys_identical (bool, optional): Whether to use the same random seed for all keys that are augmented.
         augment_kwargs (dict, optional): Additional keyword arguments to pass to the `augment_image` function.
     """
+    toplevel_seed = tf.random.uniform([2], 0, 2**31 - 1, dtype=tf.int32)
 
     def map_fn(value):
-        if traj_identical:
+        if keys_identical and traj_identical:
             seed = [x["_traj_index"], x["_traj_index"]]
+        elif keys_identical and not traj_identical:
+            seed = toplevel_seed
+        elif not keys_identical and traj_identical:
+            raise NotImplementedError()
         else:
             seed = None
+
         return augment_image(value, seed=seed, **augment_kwargs)
 
     return selective_tree_map(
