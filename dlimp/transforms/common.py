@@ -14,7 +14,7 @@ def selective_tree_map(
         x (Dict[str, Any]): The dictionary to map over.
         match (str or Sequence[str] or Callable[[str, Any], bool]): If a string or list of strings, `map_fn` will only
         be applied to leaves whose key path contains one of `match`. If a function, `map_fn` will only be applied to
-        leaves for which `match_fn(key_path, value)` returns True.
+        leaves for which `match(key_path, value)` returns True.
         map_fn (Callable): The function to apply.
     """
     if not callable(match):
