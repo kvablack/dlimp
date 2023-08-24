@@ -1,10 +1,10 @@
 import inspect
 from functools import partial
 from typing import Any, Callable, Dict, Sequence, Union
-import tensorflow_datasets as tfds
-from tensorflow_datasets.core.dataset_builder import DatasetBuilder
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
+from tensorflow_datasets.core.dataset_builder import DatasetBuilder
 
 
 def _wrap(f):
