@@ -4,7 +4,8 @@ import tensorflow as tf
 
 
 def random_resized_crop(image, scale, ratio, seed):
-    if len(tf.shape(image)) == 3:
+    assert image.shape.ndims == 3 or image.shape.ndims == 4
+    if image.shape.ndims == 3:
         image = tf.expand_dims(image, axis=0)
     batch_size = tf.shape(image)[0]
     # taken from https://keras.io/examples/vision/nnclr/#random-resized-crops
@@ -38,7 +39,10 @@ def random_resized_crop(image, scale, ratio, seed):
         image, bounding_boxes, tf.range(batch_size), (height, width)
     )
 
-    return tf.squeeze(image)
+    if image.shape[0] == 1:
+        return image[0]
+    else:
+        return image
 
 
 def random_rot90(image, seed):
@@ -70,6 +74,9 @@ def augment_image(
             the "augment_order" keyword argument.  Other keyword arguments are passed to the corresponding augmentation
             operation. See above for a list of operations.
     """
+    if "augment_order" not in augment_kwargs or not augment_kwargs["augment_order"]:
+        return image
+
     # convert images to [0, 1]
     dtype = image.dtype
     image = tf.cast(image, tf.float32) / 255.0
