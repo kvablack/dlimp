@@ -1,6 +1,8 @@
 import inspect
 from functools import partial
 from typing import Any, Callable, Dict, Sequence, Union
+import tensorflow_datasets as tfds
+from tensorflow_datasets.core.dataset_builder import DatasetBuilder
 
 import tensorflow as tf
 
@@ -73,6 +75,8 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             dir_or_paths (Union[str, Sequence[str]]): Either a directory containing .tfrecord files, or a list of paths
                 to tfrecord files.
             shuffle (bool, optional): Whether to shuffle the tfrecord files. Defaults to True.
+            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to 8. Setting
+                this much higher (or to autotune) can use an excessive amount of memory if reading from cloud storage.
         """
         if isinstance(dir_or_paths, str):
             paths = tf.io.gfile.glob(tf.io.gfile.join(dir_or_paths, "*.tfrecord"))
@@ -95,15 +99,41 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         )._apply_options()
 
         # decode the examples (yields trajectories)
-        dataset = dataset.map(
-            partial(_decode_example, type_spec=type_spec),
-            num_parallel_calls=tf.data.AUTOTUNE,
-        )
+        dataset = dataset.map(partial(_decode_example, type_spec=type_spec))
 
         # broadcast traj metadata, as well as add some extra metadata (_len, _traj_index, _frame_index)
-        dataset = dataset.enumerate().map(
-            _broadcast_metadata, num_parallel_calls=tf.data.AUTOTUNE
-        )
+        dataset = dataset.enumerate().map(_broadcast_metadata)
+
+        return dataset
+
+    @staticmethod
+    def from_rlds(
+        builder: DatasetBuilder,
+        split: str = "train",
+        shuffle: bool = True,
+        num_parallel_reads: int = 8,
+    ) -> "DLataset":
+        """Creates a DLataset from the RLDS format (which is a special case of the TFDS format).
+
+        Args:
+            builder (DatasetBuilder): The TFDS dataset builder to load the dataset from.
+            data_dir (str): The directory to load the dataset from.
+            split (str, optional): The split to load, specified in TFDS format. Defaults to "train".
+            shuffle (bool, optional): Whether to shuffle the dataset. Defaults to True.
+            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to 8. Setting
+                this much higher (or to autotune) can use an excessive amount of memory if reading from cloud storage.
+        """
+        dataset = _wrap(builder.as_dataset)(
+            split=split,
+            shuffle_files=shuffle,
+            decoders={"steps": tfds.decode.SkipDecoding()},
+            read_config=tfds.ReadConfig(
+                skip_prefetch=True,
+                num_parallel_calls_for_interleave_files=num_parallel_reads,
+            ),
+        )._apply_options()
+
+        dataset = dataset.enumerate().map(_broadcast_metadata_rlds)
 
         return dataset
 
@@ -174,7 +204,9 @@ def _get_type_spec(path: str) -> Dict[str, tf.TensorSpec]:
     return out
 
 
-def _broadcast_metadata(i: tf.Tensor, x: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
+def _broadcast_metadata(
+    i: tf.Tensor, traj: Dict[str, tf.Tensor]
+) -> Dict[str, tf.Tensor]:
     """
     Each element of a dlimp dataset is a trajectory. This means each entry must either have a leading dimension equal to
     the length of the trajectory, have a leading dimension of 1, or be a scalar. Entries with a leading dimension of 1
@@ -182,20 +214,22 @@ def _broadcast_metadata(i: tf.Tensor, x: Dict[str, tf.Tensor]) -> Dict[str, tf.T
     trajectory, as well as adds the extra metadata fields `_len`, `_traj_index`, and `_frame_index`.
     """
     # get the length of each dict entry
-    traj_lens = {k: tf.shape(v)[0] if len(v.shape) > 0 else None for k, v in x.items()}
+    traj_lens = {
+        k: tf.shape(v)[0] if len(v.shape) > 0 else None for k, v in traj.items()
+    }
 
     # take the maximum length as the canonical length (elements should either be the same length or length 1)
     traj_len = tf.reduce_max([l for l in traj_lens.values() if l is not None])
 
-    for k in x:
+    for k in traj:
         # broadcast scalars to the length of the trajectory
         if traj_lens[k] is None:
-            x[k] = tf.repeat(x[k], traj_len)
+            traj[k] = tf.repeat(traj[k], traj_len)
             traj_lens[k] = traj_len
 
         # broadcast length-1 elements to the length of the trajectory
         if traj_lens[k] == 1:
-            x[k] = tf.repeat(x[k], traj_len, axis=0)
+            traj[k] = tf.repeat(traj[k], traj_len, axis=0)
             traj_lens[k] = traj_len
 
     asserts = [
@@ -207,12 +241,39 @@ def _broadcast_metadata(i: tf.Tensor, x: Dict[str, tf.Tensor]) -> Dict[str, tf.T
         ),
     ]
 
-    assert "_len" not in x
-    assert "_traj_index" not in x
-    assert "_frame_index" not in x
-    x["_len"] = tf.repeat(traj_len, traj_len)
-    x["_traj_index"] = tf.repeat(i, traj_len)
-    x["_frame_index"] = tf.range(traj_len)
+    assert "_len" not in traj
+    assert "_traj_index" not in traj
+    assert "_frame_index" not in traj
+    traj["_len"] = tf.repeat(traj_len, traj_len)
+    traj["_traj_index"] = tf.repeat(i, traj_len)
+    traj["_frame_index"] = tf.range(traj_len)
 
     with tf.control_dependencies(asserts):
-        return x
+        return traj
+
+
+def _broadcast_metadata_rlds(i: tf.Tensor, traj: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    In the RLDS format, each trajectory has some top-level metadata that is explicitly separated out, and a "steps"
+    entry. This function moves the "steps" entry to the top level, broadcasting any metadata to the length of the
+    trajectory. This function also adds the extra metadata fields `_len`, `_traj_index`, and `_frame_index`.
+    """
+    steps = traj.pop("steps")
+
+    traj_len = tf.shape(tf.nest.flatten(steps)[0])[0]
+
+    # broadcast metadata to the length of the trajectory
+    metadata = tf.nest.map_structure(lambda x: tf.repeat(x, traj_len), traj)
+
+    # put steps back in
+    assert "traj_metadata" not in steps
+    traj = {**steps, "traj_metadata": metadata}
+
+    assert "_len" not in traj
+    assert "_traj_index" not in traj
+    assert "_frame_index" not in traj
+    traj["_len"] = tf.repeat(traj_len, traj_len)
+    traj["_traj_index"] = tf.repeat(i, traj_len)
+    traj["_frame_index"] = tf.range(traj_len)
+
+    return traj
