@@ -67,6 +67,30 @@ def augment_image(
 ) -> tf.Tensor:
     """Unified image augmentation function for TensorFlow.
 
+    This function is primarily configured through `augment_kwargs`. There must be one kwarg called "augment_order",
+    which is a list of strings specifying the augmentation operations to apply and the order in which to apply them. See
+    the `AUGMENT_OPS` dictionary above for a list of available operations.
+
+    For each entry in "augment_order", there may be a corresponding kwarg with the same name. The value of this kwarg
+    can be a dictionary of kwargs or a sequence of positional args to pass to the corresponding augmentation operation.
+    This additional kwarg is required for all operations that take additional arguments other than the image and random
+    seed. For example, the "random_resized_crop" operation requires a "scale" and "ratio" argument that can be specified
+    either positionally or by name. "random_flip_left_right", on the other hand, does not take any additional arguments
+    and so does not require an additional kwarg to configure it.
+
+    Here is an example config:
+
+    ```
+    augment_kwargs = {
+        "augment_order": ["random_resized_crop", "random_brightness", "random_contrast", "random_flip_left_right"],
+        "random_resized_crop": {
+            "scale": [0.8, 1.0],
+            "ratio": [3/4, 4/3],
+        },
+        "random_brightness": [0.1],
+        "random_contrast": [0.9, 1.1],
+    ```
+
     Args:
         image: A `Tensor` of shape [height, width, channels] with the image. May be uint8 or float32 with values in [0, 255].
         seed (optional): A `Tensor` of shape [2] with the seed for the random number generator.
@@ -74,8 +98,8 @@ def augment_image(
             the "augment_order" keyword argument.  Other keyword arguments are passed to the corresponding augmentation
             operation. See above for a list of operations.
     """
-    if "augment_order" not in augment_kwargs or not augment_kwargs["augment_order"]:
-        return image
+    if "augment_order" not in augment_kwargs:
+        raise ValueError("augment_kwargs must contain an 'augment_order' key.")
 
     # convert images to [0, 1]
     dtype = image.dtype
