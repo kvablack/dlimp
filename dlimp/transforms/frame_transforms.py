@@ -4,7 +4,7 @@ from typing import Any, Dict, Sequence, Tuple, Union
 import tensorflow as tf
 
 from dlimp.augmentations import augment_image
-from dlimp.utils import resize_image
+from dlimp.utils import resize_image, resize_depth_image
 
 from .common import selective_tree_map
 
@@ -40,6 +40,25 @@ def resize_images(
         lambda keypath, value: any([s in keypath for s in match])
         and value.dtype == tf.uint8,
         partial(resize_image, size=size),
+    )
+
+
+def resize_depth_images(
+    x: Dict[str, Any],
+    match: Union[str, Sequence[str]] = "depth",
+    size: Tuple[int, int] = (128, 128),
+) -> Dict[str, Any]:
+    """Can operate on nested dicts. Resizes any leaves that have `match` anywhere in their path. Takes float32 images
+    as input and returns float images (in arbitrary range).
+    """
+    if isinstance(match, str):
+        match = [match]
+
+    return selective_tree_map(
+        x,
+        lambda keypath, value: any([s in keypath for s in match])
+        and value.dtype == tf.float32,
+        partial(resize_depth_image, size=size),
     )
 
 
