@@ -16,6 +16,16 @@ def resize_image(image: tf.Tensor, size: Tuple[int, int]) -> tf.Tensor:
     return image
 
 
+def resize_depth_image(depth_image: tf.Tensor, size: Tuple[int, int]) -> tf.Tensor:
+    """Resizes a depth image using bilinear interpolation. Expects & returns float32 in arbitrary range."""
+    assert depth_image.dtype == tf.float32
+    if len(depth_image.shape) < 3:
+        depth_image = tf.image.resize(depth_image[..., None], size, method="bilinear", antialias=True)[..., 0]
+    else:
+        depth_image = tf.image.resize(depth_image, size, method="bilinear", antialias=True)
+    return depth_image
+
+
 def read_resize_encode_image(path: str, size: Tuple[int, int]) -> tf.Tensor:
     """Reads, decodes, resizes, and then re-encodes an image."""
     data = tf.io.read_file(path)
