@@ -1,4 +1,5 @@
 import inspect
+import string
 from functools import partial
 from typing import Any, Callable, Dict, Sequence, Union
 
@@ -157,8 +158,8 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             num_parallel_calls=tf.data.AUTOTUNE,
         )
 
-    def iterator(self):
-        return self.prefetch(tf.data.AUTOTUNE).as_numpy_iterator()
+    def iterator(self, prefetch=tf.data.AUTOTUNE):
+        return self.prefetch(prefetch).as_numpy_iterator()
 
 
 def _decode_example(
@@ -168,11 +169,16 @@ def _decode_example(
     parsed_features = tf.io.parse_single_example(example_proto, features)
     parsed_tensors = {
         key: tf.io.parse_tensor(parsed_features[key], spec.dtype)
+        if spec is not None
+        else parsed_features[key]
         for key, spec in type_spec.items()
     }
 
     for key in parsed_tensors:
-        parsed_tensors[key] = tf.ensure_shape(parsed_tensors[key], type_spec[key].shape)
+        if type_spec[key] is not None:
+            parsed_tensors[key] = tf.ensure_shape(
+                parsed_tensors[key], type_spec[key].shape
+            )
 
     return parsed_tensors
 
@@ -190,9 +196,15 @@ def _get_type_spec(path: str) -> Dict[str, tf.TensorSpec]:
     example = tf.train.Example()
     example.ParseFromString(data)
 
+    printable_chars = set(bytes(string.printable, "utf-8"))
+
     out = {}
     for key, value in example.features.feature.items():
         data = value.bytes_list.value[0]
+        # stupid hack to deal with strings that are not encoded as tensors
+        if all(char in printable_chars for char in data):
+            out[key] = None
+            continue
         tensor_proto = tf.make_tensor_proto([])
         tensor_proto.ParseFromString(data)
         dtype = tf.dtypes.as_dtype(tensor_proto.dtype)
