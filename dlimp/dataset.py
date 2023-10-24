@@ -63,6 +63,16 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         # options.experimental_optimization.warm_start = True
         return self.with_options(options)
 
+    def with_ram_budget(self, gb: int) -> "DLataset":
+        """Sets the RAM budget for the dataset. The default is half of the available memory.
+
+        Args:
+            gb (int): The RAM budget in GB.
+        """
+        options = tf.data.Options()
+        options.autotune.ram_budget = gb * 1024 * 1024 * 1024  # GB --> Bytes
+        return self.with_options(options)
+
     @staticmethod
     def from_tfrecords(
         dir_or_paths: Union[str, Sequence[str]],
@@ -163,14 +173,15 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             num_parallel_calls=tf.data.AUTOTUNE,
         )
 
-    def flatten(self) -> "DLataset":
+    def flatten(self, *, num_parallel_calls=tf.data.AUTOTUNE) -> "DLataset":
         """Flattens the dataset of trajectories into a dataset of frames."""
         return self.interleave(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj),
-            num_parallel_calls=tf.data.AUTOTUNE,
+            cycle_length=num_parallel_calls,
+            num_parallel_calls=num_parallel_calls,
         )
 
-    def iterator(self, prefetch=tf.data.AUTOTUNE):
+    def iterator(self, *, prefetch=tf.data.AUTOTUNE):
         return self.prefetch(prefetch).as_numpy_iterator()
 
 
