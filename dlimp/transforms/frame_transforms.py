@@ -4,7 +4,7 @@ from typing import Any, Dict, Sequence, Tuple, Union
 import tensorflow as tf
 
 from dlimp.augmentations import augment_image
-from dlimp.utils import resize_image, resize_depth_image
+from dlimp.utils import resize_depth_image, resize_image
 
 from .common import selective_tree_map
 
