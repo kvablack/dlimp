@@ -42,7 +42,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
     efficiently using `.frame_map`.
 
     Once there are no more trajectory-level transformation to perform, the dataset can converted to a dataset of frames
-    using `.unbatch`. Do not use `.frame_map` after `.unbatch`.
+    using `.flatten`. Do not use `.frame_map` after `.flatten`.
     """
 
     def __getattribute__(self, name):
@@ -56,6 +56,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         """Applies some default options for performance."""
         options = tf.data.Options()
         options.autotune.enabled = True
+        options.deterministic = False
         options.experimental_optimization.apply_default_optimizations = True
         options.experimental_optimization.map_fusion = True
         options.experimental_optimization.map_and_filter_fusion = True
@@ -153,8 +154,19 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         return self.map(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj)
             .map(fn, num_parallel_calls=tf.data.AUTOTUNE)
-            .batch(tf.cast(tf.shape(tf.nest.flatten(traj)[0])[0], tf.int64))
+            .batch(
+                tf.dtypes.int64.max,
+                num_parallel_calls=tf.data.AUTOTUNE,
+                drop_remainder=False,
+            )
             .get_single_element(),
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+
+    def flatten(self) -> "DLataset":
+        """Flattens the dataset of trajectories into a dataset of frames."""
+        return self.interleave(
+            lambda traj: tf.data.Dataset.from_tensor_slices(traj),
             num_parallel_calls=tf.data.AUTOTUNE,
         )
 

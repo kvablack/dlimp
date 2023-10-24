@@ -101,9 +101,10 @@ def augment_image(
     if "augment_order" not in augment_kwargs:
         raise ValueError("augment_kwargs must contain an 'augment_order' key.")
 
-    # convert images to [0, 1]
-    dtype = image.dtype
-    image = tf.cast(image, tf.float32) / 255.0
+    # convert to float at the beginning to avoid each op converting back and
+    # forth between uint8 and float32 internally
+    orig_dtype = image.dtype
+    image = tf.image.convert_image_dtype(image, tf.float32)
 
     if seed is None:
         seed = tf.random.uniform([2], 0, 2**31 - 1, dtype=tf.int32)
@@ -116,11 +117,10 @@ def augment_image(
                 image = AUGMENT_OPS[op](image, seed=seed, *augment_kwargs[op])
         else:
             image = AUGMENT_OPS[op](image, seed=seed)
+        # float images are expected to be in [0, 1]
         image = tf.clip_by_value(image, 0, 1)
 
     # convert back to original dtype and scale
-    image *= 255
-    if dtype == tf.uint8:
-        image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.uint8)
+    image = tf.image.convert_image_dtype(image, orig_dtype, saturate=True)
 
     return image
