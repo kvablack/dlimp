@@ -163,7 +163,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         """
         return self.map(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj)
-            .map(fn, num_parallel_calls=tf.data.AUTOTUNE)
+            .map(fn, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
             .batch(
                 tf.dtypes.int64.max,
                 num_parallel_calls=tf.data.AUTOTUNE,
