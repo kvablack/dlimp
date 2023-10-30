@@ -77,7 +77,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
     def from_tfrecords(
         dir_or_paths: Union[str, Sequence[str]],
         shuffle: bool = True,
-        num_parallel_reads: int = 8,
+        num_parallel_reads: int = tf.data.AUTOTUNE,
     ) -> "DLataset":
         """Creates a DLataset from tfrecord files. The type spec of the dataset is inferred from the first file. The
         only constraint is that each example must be a trajectory where each entry is either a scalar, a tensor of shape
@@ -87,7 +87,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             dir_or_paths (Union[str, Sequence[str]]): Either a directory containing .tfrecord files, or a list of paths
                 to tfrecord files.
             shuffle (bool, optional): Whether to shuffle the tfrecord files. Defaults to True.
-            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to 8. Setting
+            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to AUTOTUNE. Setting
                 this much higher (or to autotune) can use an excessive amount of memory if reading from cloud storage.
         """
         if isinstance(dir_or_paths, str):
@@ -115,15 +115,14 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
 
         # broadcast traj metadata, as well as add some extra metadata (_len, _traj_index, _frame_index)
         dataset = dataset.enumerate().map(_broadcast_metadata)
-
-        return dataset
+        return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
     @staticmethod
     def from_rlds(
         builder: DatasetBuilder,
         split: str = "train",
         shuffle: bool = True,
-        num_parallel_reads: int = 8,
+        num_parallel_reads: int = tf.data.AUTOTUNE,
     ) -> "DLataset":
         """Creates a DLataset from the RLDS format (which is a special case of the TFDS format).
 
@@ -141,36 +140,31 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             decoders={"steps": tfds.decode.SkipDecoding()},
             read_config=tfds.ReadConfig(
                 skip_prefetch=True,
+                num_parallel_calls_for_decode=num_parallel_reads,
                 num_parallel_calls_for_interleave_files=num_parallel_reads,
             ),
         )._apply_options()
-
         dataset = dataset.enumerate().map(_broadcast_metadata_rlds)
+        return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
-        return dataset
-
-    def map(
-        self, fn: Callable[[Dict[str, Any]], Dict[str, Any]], **kwargs
-    ) -> "DLataset":
-        # just makes sure that num_parallel_calls is set to AUTOTUNE by default
-        if "num_parallel_calls" not in kwargs:
-            kwargs["num_parallel_calls"] = tf.data.AUTOTUNE
-        return super().map(fn, **kwargs)
-
-    def frame_map(self, fn: Callable[[Dict[str, Any]], Dict[str, Any]]) -> "DLataset":
+    def frame_map(
+            self,
+            fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+            num_parallel_reads = tf.data.AUTOTUNE,
+        ) -> "DLataset":
         """Maps a function over the frames of the dataset. The function should take a single frame as input and return a
         single frame as output.
         """
         return self.map(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj)
-            .map(fn, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
+            .map(fn, num_parallel_calls=num_parallel_reads)
             .batch(
                 tf.dtypes.int64.max,
-                num_parallel_calls=tf.data.AUTOTUNE,
+                num_parallel_calls=num_parallel_reads,
                 drop_remainder=False,
             )
             .get_single_element(),
-            num_parallel_calls=tf.data.AUTOTUNE,
+            num_parallel_calls=num_parallel_reads,
         )
 
     def flatten(self, *, num_parallel_calls=tf.data.AUTOTUNE) -> "DLataset":
@@ -179,10 +173,11 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             lambda traj: tf.data.Dataset.from_tensor_slices(traj),
             cycle_length=num_parallel_calls,
             num_parallel_calls=num_parallel_calls,
+            deterministic=False,
         )
 
     def iterator(self, *, prefetch=tf.data.AUTOTUNE):
-        return self.prefetch(prefetch).as_numpy_iterator()
+        return self.prefetch(buffer_size=prefetch).as_numpy_iterator()
 
 
 def _decode_example(
