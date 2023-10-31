@@ -150,21 +150,24 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
     def frame_map(
             self,
             fn: Callable[[Dict[str, Any]], Dict[str, Any]],
-            num_parallel_reads = tf.data.AUTOTUNE,
+            num_parallel_calls: int = tf.data.AUTOTUNE,
         ) -> "DLataset":
         """Maps a function over the frames of the dataset. The function should take a single frame as input and return a
         single frame as output.
+        Args:
+            fn (Callable[[Dict[str, Any]], Dict[str, Any]]): The function to map over the frames of the dataset.
+            num_parallel_reads (int): The number of frames to process in parallel. Defaults to AUTOTUNE.
         """
         return self.map(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj)
-            .map(fn, num_parallel_calls=num_parallel_reads)
+            .map(fn, num_parallel_calls=num_parallel_calls)
             .batch(
                 tf.dtypes.int64.max,
-                num_parallel_calls=num_parallel_reads,
+                num_parallel_calls=num_parallel_calls,
                 drop_remainder=False,
             )
             .get_single_element(),
-            num_parallel_calls=num_parallel_reads,
+            num_parallel_calls=num_parallel_calls,
         )
 
     def flatten(self, *, num_parallel_calls=tf.data.AUTOTUNE) -> "DLataset":
