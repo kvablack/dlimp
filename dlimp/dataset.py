@@ -77,7 +77,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
     def from_tfrecords(
         dir_or_paths: Union[str, Sequence[str]],
         shuffle: bool = True,
-        num_parallel_reads: int = 8,
+        num_parallel_reads: int = tf.data.AUTOTUNE,
     ) -> "DLataset":
         """Creates a DLataset from tfrecord files. The type spec of the dataset is inferred from the first file. The
         only constraint is that each example must be a trajectory where each entry is either a scalar, a tensor of shape
@@ -87,8 +87,8 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             dir_or_paths (Union[str, Sequence[str]]): Either a directory containing .tfrecord files, or a list of paths
                 to tfrecord files.
             shuffle (bool, optional): Whether to shuffle the tfrecord files. Defaults to True.
-            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to 8. Setting
-                this much higher (or to autotune) can use an excessive amount of memory if reading from cloud storage.
+            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to AUTOTUNE. This
+                can use an excessive amount of memory if reading from cloud storage; decrease if necessary.
         """
         if isinstance(dir_or_paths, str):
             paths = tf.io.gfile.glob(tf.io.gfile.join(dir_or_paths, "*.tfrecord"))
@@ -123,7 +123,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         builder: DatasetBuilder,
         split: str = "train",
         shuffle: bool = True,
-        num_parallel_reads: int = 8,
+        num_parallel_reads: int = tf.data.AUTOTUNE,
     ) -> "DLataset":
         """Creates a DLataset from the RLDS format (which is a special case of the TFDS format).
 
@@ -132,8 +132,8 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             data_dir (str): The directory to load the dataset from.
             split (str, optional): The split to load, specified in TFDS format. Defaults to "train".
             shuffle (bool, optional): Whether to shuffle the dataset. Defaults to True.
-            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to 8. Setting
-                this much higher (or to autotune) can use an excessive amount of memory if reading from cloud storage.
+            num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to AUTOTUNE. This
+                can use an excessive amount of memory if reading from cloud storage; decrease if necessary.
         """
         dataset = _wrap(builder.as_dataset)(
             split=split,
@@ -150,27 +150,34 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         return dataset
 
     def map(
-        self, fn: Callable[[Dict[str, Any]], Dict[str, Any]], **kwargs
+        self,
+        fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+        num_parallel_calls=tf.data.AUTOTUNE,
+        **kwargs,
     ) -> "DLataset":
-        # just makes sure that num_parallel_calls is set to AUTOTUNE by default
-        if "num_parallel_calls" not in kwargs:
-            kwargs["num_parallel_calls"] = tf.data.AUTOTUNE
-        return super().map(fn, **kwargs)
+        return super().map(fn, num_parallel_calls=num_parallel_calls, **kwargs)
 
-    def frame_map(self, fn: Callable[[Dict[str, Any]], Dict[str, Any]]) -> "DLataset":
+    def frame_map(
+        self,
+        fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+        num_parallel_calls=tf.data.AUTOTUNE,
+        **kwargs,
+    ) -> "DLataset":
         """Maps a function over the frames of the dataset. The function should take a single frame as input and return a
         single frame as output.
         """
         return self.map(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj)
-            .map(fn, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
+            .map(
+                fn, num_parallel_calls=num_parallel_calls, deterministic=True, **kwargs
+            )
             .batch(
                 tf.dtypes.int64.max,
-                num_parallel_calls=tf.data.AUTOTUNE,
+                num_parallel_calls=num_parallel_calls,
                 drop_remainder=False,
             )
             .get_single_element(),
-            num_parallel_calls=tf.data.AUTOTUNE,
+            num_parallel_calls=num_parallel_calls,
         )
 
     def flatten(self, *, num_parallel_calls=tf.data.AUTOTUNE) -> "DLataset":
