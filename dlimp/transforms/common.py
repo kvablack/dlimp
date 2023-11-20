@@ -1,26 +1,33 @@
-from typing import Any, Callable, Dict, Sequence, Union
+import fnmatch
+from typing import Any, Callable, Dict, Union
 
 
 def selective_tree_map(
     x: Dict[str, Any],
-    match: Union[str, Sequence[str], Callable[[str, Any], bool]],
+    match: Union[str, Callable[[str, Any], bool]],
     map_fn: Callable,
     *,
     _keypath: str = "",
 ) -> Dict[str, Any]:
     """Maps a function over a nested dictionary, only applying it leaves that match a criterion.
 
+    If `match` is a string, it follows glob-style syntax. For example, "bar" will only match
+    a top-level key called "bar", "*bar" will match any leaf whose key ends with "bar",
+    and "*bar*" will match any subtree with a key that contains "bar".
+
+    Key paths are separated by "/". For example, "foo/bar" will match a leaf with key "bar" that
+    is nested under a key "foo".
+
     Args:
-        x (Dict[str, Any]): The dictionary to map over.
-        match (str or Sequence[str] or Callable[[str, Any], bool]): If a string or list of strings, `map_fn` will only
-        be applied to leaves whose key path contains one of `match`. If a function, `map_fn` will only be applied to
-        leaves for which `match(key_path, value)` returns True.
+        x (Dict[str, Any]): The (possibly nested) dictionary to map over.
+        match (str or Callable[[str, Any], bool]): If a string or list of strings, `map_fn` will
+            only be applied to leaves whose key path matches `match` using glob-style syntax. If a
+            function, `map_fn` will only be applied to leaves for which `match(key_path, value)`
+            returns True.
         map_fn (Callable): The function to apply.
     """
     if not callable(match):
-        if isinstance(match, str):
-            match = [match]
-        match_fn = lambda keypath, value: any([s in keypath for s in match])
+        match_fn = lambda keypath, value: fnmatch.fnmatch(keypath, match)
     else:
         match_fn = match
 

@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Dict, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Sequence, Tuple, Union
 
 import tensorflow as tf
 
@@ -64,7 +64,7 @@ def resize_depth_images(
 
 def augment(
     x: Dict[str, Any],
-    match: Union[str, Sequence[str]] = "image",
+    match: Union[str, Callable[[str, Any], bool]] = "*image",
     traj_identical: bool = True,
     keys_identical: bool = True,
     augment_kwargs: dict = {},
@@ -74,7 +74,8 @@ def augment(
 
     Args:
         x (Dict[str, Any]): The input dictionary to augment.
-        match (str, optional): The string to match in keypaths. Defaults to "image".
+        match (str or Callable[[str, Any], bool]): See documentation for `selective_tree_map`.
+            Defaults to "*image", which matches all leaves whose key ends in "image".
         traj_identical (bool, optional): Whether to use the same random seed for all images in a trajectory.
         keys_identical (bool, optional): Whether to use the same random seed for all keys that are augmented.
         augment_kwargs (dict, optional): Additional keyword arguments to pass to the `augment_image` function.
