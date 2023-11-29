@@ -7,6 +7,8 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 from tensorflow_datasets.core.dataset_builder import DatasetBuilder
 
+from dlimp.utils import parallel_vmap
+
 
 def _wrap(f):
     """Wraps a function to return a DLataset instead of a tf.data.Dataset."""
@@ -161,22 +163,12 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         self,
         fn: Callable[[Dict[str, Any]], Dict[str, Any]],
         num_parallel_calls=tf.data.AUTOTUNE,
-        **kwargs,
     ) -> "DLataset":
         """Maps a function over the frames of the dataset. The function should take a single frame as input and return a
         single frame as output.
         """
         return self.map(
-            lambda traj: tf.data.Dataset.from_tensor_slices(traj)
-            .map(
-                fn, num_parallel_calls=num_parallel_calls, deterministic=True, **kwargs
-            )
-            .batch(
-                tf.dtypes.int64.max,
-                num_parallel_calls=num_parallel_calls,
-                drop_remainder=False,
-            )
-            .get_single_element(),
+            parallel_vmap(fn, num_parallel_calls=num_parallel_calls),
             num_parallel_calls=num_parallel_calls,
         )
 
