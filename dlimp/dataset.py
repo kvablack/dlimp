@@ -144,6 +144,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             read_config=tfds.ReadConfig(
                 skip_prefetch=True,
                 num_parallel_calls_for_interleave_files=num_parallel_reads,
+                interleave_cycle_length=num_parallel_reads,
             ),
         )._apply_options()
 
@@ -181,6 +182,8 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         )
 
     def iterator(self, *, prefetch=tf.data.AUTOTUNE):
+        if prefetch == 0:
+            return self.as_numpy_iterator()
         return self.prefetch(prefetch).as_numpy_iterator()
 
 
