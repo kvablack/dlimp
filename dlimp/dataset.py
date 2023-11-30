@@ -62,6 +62,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         options.experimental_optimization.apply_default_optimizations = True
         options.experimental_optimization.map_fusion = True
         options.experimental_optimization.map_and_filter_fusion = True
+        options.experimental_optimization.inject_prefetch = False
         # options.experimental_optimization.warm_start = True
         return self.with_options(options)
 
