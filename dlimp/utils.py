@@ -76,7 +76,6 @@ def parallel_vmap(fn: Callable, num_parallel_calls=tf.data.AUTOTUNE) -> Callable
             .map(fn, deterministic=True, num_parallel_calls=num_parallel_calls)
             .batch(
                 tf.cast(tf.shape(tf.nest.flatten(structure)[0])[0], tf.int64),
-                num_parallel_calls=num_parallel_calls,
             )
             .get_single_element()
         )
