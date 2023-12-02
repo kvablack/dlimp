@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
-        "tensorflow>=2.13.0",
+        "tensorflow==2.15.0",
         "tqdm",
         "tqdm-multiprocess==0.0.11",
         "pre-commit==3.3.3",

@@ -63,7 +63,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         options.experimental_optimization.map_fusion = True
         options.experimental_optimization.map_and_filter_fusion = True
         options.experimental_optimization.inject_prefetch = False
-        # options.experimental_optimization.warm_start = True
+        options.experimental_warm_start = True
         return self.with_options(options)
 
     def with_ram_budget(self, gb: int) -> "DLataset":
