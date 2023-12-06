@@ -7,9 +7,15 @@ setup(
     python_requires=">=3.8",
     install_requires=[
         "tensorflow==2.15.0",
-        "tqdm",
-        "tqdm-multiprocess==0.0.11",
-        "pre-commit==3.3.3",
         "tensorflow_datasets>=4.9.2",
     ],
+    extras_require={
+        "convert": [
+            "tqdm",
+            "tqdm-multiprocess==0.0.11",
+        ],
+        "dev": [
+            "pre-commit==3.3.3",
+        ],
+    },
 )
