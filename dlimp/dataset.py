@@ -10,8 +10,8 @@ from tensorflow_datasets.core.dataset_builder import DatasetBuilder
 from dlimp.utils import parallel_vmap
 
 
-def _wrap(f):
-    """Wraps a function to return a DLataset instead of a tf.data.Dataset."""
+def _wrap(f, is_flattened):
+    """Wraps a method to return a DLataset instead of a tf.data.Dataset."""
 
     def wrapper(*args, **kwargs):
         result = f(*args, **kwargs)
@@ -20,38 +20,41 @@ def _wrap(f):
             result.__class__ = type(
                 "DLataset", (DLataset, type(result)), DLataset.__dict__.copy()
             )
+            # propagate the is_flattened flag
+            if is_flattened is None:
+                result.is_flattened = f.__self__.is_flattened
+            else:
+                result.is_flattened = is_flattened
         return result
 
     return wrapper
 
 
-class _DLatasetMeta(type(tf.data.Dataset)):
-    def __getattribute__(self, name):
-        # monkey-patches tf.data.Dataset static methods to return DLatasets
-        attr = super().__getattribute__(name)
-        if inspect.isfunction(attr):
-            return _wrap(attr)
-        return attr
-
-
-class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
+class DLataset(tf.data.Dataset):
     """A DLimp Dataset. This is a thin wrapper around tf.data.Dataset that adds some utilities for working
     with datasets of trajectories.
 
-    A DLimp dataset is a dataset of trajectories. Each element of the dataset is a single trajectory, so performing a
-    transformation at the trajectory level can be achieved by simply using `.map`. However, it is often useful to
-    perform transformations at the frame level, such as image decoding or augmentations. This can be achieved
-    efficiently using `.frame_map`.
+    A DLataset starts out as dataset of trajectories, where each dataset element is a single trajectory. A
+    dataset element is always a (possibly nested) dictionary from strings to tensors; however, a trajectory
+    has the additional property that each tensor has the same leading dimension, which is the trajectory
+    length. Each element of the trajectory is known as a frame.
 
-    Once there are no more trajectory-level transformation to perform, the dataset can converted to a dataset of frames
-    using `.flatten`. Do not use `.frame_map` after `.flatten`.
+    A DLataset is just a tf.data.Dataset, so you can always use standard methods like `.map` and `.filter`.
+    However, a DLataset is also aware of the difference between trajectories and frames, so it provides some
+    additional methods. To perform a transformation at the trajectory level (e.g., restructuring, relabeling,
+    truncating), use `.traj_map`. To perform a transformation at the frame level (e.g., image decoding,
+    resizing, augmentations) use `.frame_map`.
+
+    Once there are no more trajectory-level transformation to perform, you can convert to DLataset to a
+    dataset of frames using `.flatten`. You can still use `.frame_map` after flattening, but using `.traj_map`
+    will raise an error.
     """
 
     def __getattribute__(self, name):
         # monkey-patches tf.data.Dataset methods to return DLatasets
         attr = super().__getattribute__(name)
         if inspect.ismethod(attr):
-            return _wrap(attr)
+            return _wrap(attr, None)
         return attr
 
     def _apply_options(self):
@@ -108,7 +111,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         type_spec = _get_type_spec(paths[0])
 
         # read the tfrecords (yields raw serialized examples)
-        dataset = _wrap(tf.data.TFRecordDataset)(
+        dataset = _wrap(tf.data.TFRecordDataset, False)(
             paths,
             num_parallel_reads=num_parallel_reads,
         )._apply_options()
@@ -138,7 +141,7 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
             num_parallel_reads (int, optional): The number of tfrecord files to read in parallel. Defaults to AUTOTUNE. This
                 can use an excessive amount of memory if reading from cloud storage; decrease if necessary.
         """
-        dataset = _wrap(builder.as_dataset)(
+        dataset = _wrap(builder.as_dataset, False)(
             split=split,
             shuffle_files=shuffle,
             decoders={"steps": tfds.decode.SkipDecoding()},
@@ -176,6 +179,9 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
 
     def flatten(self, *, num_parallel_calls=tf.data.AUTOTUNE) -> "DLataset":
         """Flattens the dataset of trajectories into a dataset of frames."""
+        if self.is_flattened:
+            raise ValueError("Dataset is already flattened.")
+        self.is_flattened = True
         return self.interleave(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj),
             cycle_length=num_parallel_calls,
@@ -186,6 +192,40 @@ class DLataset(tf.data.Dataset, metaclass=_DLatasetMeta):
         if prefetch == 0:
             return self.as_numpy_iterator()
         return self.prefetch(prefetch).as_numpy_iterator()
+
+    @staticmethod
+    def choose_from_datasets(datasets, choice_dataset, stop_on_empty_dataset=True):
+        if not isinstance(datasets[0], DLataset):
+            raise ValueError("Please pass DLatasets to choose_from_datasets.")
+        return _wrap(tf.data.Dataset.choose_from_datasets, datasets[0].is_flattened)(
+            datasets, choice_dataset, stop_on_empty_dataset=stop_on_empty_dataset
+        )
+
+    @staticmethod
+    def sample_from_datasets(
+        datasets,
+        weights=None,
+        seed=None,
+        stop_on_empty_dataset=False,
+        rerandomize_each_iteration=None,
+    ):
+        if not isinstance(datasets[0], DLataset):
+            raise ValueError("Please pass DLatasets to sample_from_datasets.")
+        return _wrap(tf.data.Dataset.sample_from_datasets, datasets[0].is_flattened)(
+            datasets,
+            weights=weights,
+            seed=seed,
+            stop_on_empty_dataset=stop_on_empty_dataset,
+            rerandomize_each_iteration=rerandomize_each_iteration,
+        )
+
+    @staticmethod
+    def zip(*args, datasets=None, name=None):
+        if datasets is not None:
+            raise ValueError("Please do not pass `datasets=` to zip.")
+        if not isinstance(args[0], DLataset):
+            raise ValueError("Please pass DLatasets to zip.")
+        return _wrap(tf.data.Dataset.zip, args[0].is_flattened)(*args, name=name)
 
 
 def _decode_example(
