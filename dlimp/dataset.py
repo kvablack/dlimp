@@ -117,10 +117,10 @@ class DLataset(tf.data.Dataset):
         )._apply_options()
 
         # decode the examples (yields trajectories)
-        dataset = dataset.map(partial(_decode_example, type_spec=type_spec))
+        dataset = dataset.traj_map(partial(_decode_example, type_spec=type_spec))
 
         # broadcast traj metadata, as well as add some extra metadata (_len, _traj_index, _frame_index)
-        dataset = dataset.enumerate().map(_broadcast_metadata)
+        dataset = dataset.enumerate().traj_map(_broadcast_metadata)
 
         return dataset
 
@@ -152,7 +152,7 @@ class DLataset(tf.data.Dataset):
             ),
         )._apply_options()
 
-        dataset = dataset.enumerate().map(_broadcast_metadata_rlds)
+        dataset = dataset.enumerate().traj_map(_broadcast_metadata_rlds)
 
         return dataset
 
@@ -164,18 +164,36 @@ class DLataset(tf.data.Dataset):
     ) -> "DLataset":
         return super().map(fn, num_parallel_calls=num_parallel_calls, **kwargs)
 
+    def traj_map(
+        self,
+        fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+        num_parallel_calls=tf.data.AUTOTUNE,
+        **kwargs,
+    ) -> "DLataset":
+        """Maps a function over the trajectories of the dataset. The function should take a single trajectory
+        as input and return a single trajectory as output.
+        """
+        if self.is_flattened:
+            raise ValueError("Cannot call traj_map on a flattened dataset.")
+        return super().map(fn, num_parallel_calls=num_parallel_calls, **kwargs)
+
     def frame_map(
         self,
         fn: Callable[[Dict[str, Any]], Dict[str, Any]],
         num_parallel_calls=tf.data.AUTOTUNE,
+        **kwargs,
     ) -> "DLataset":
-        """Maps a function over the frames of the dataset. The function should take a single frame as input and return a
-        single frame as output.
+        """Maps a function over the frames of the dataset. The function should take a single frame as input
+        and return a single frame as output.
         """
-        return self.map(
-            parallel_vmap(fn, num_parallel_calls=num_parallel_calls),
-            num_parallel_calls=num_parallel_calls,
-        )
+        if self.is_flattened:
+            return super().map(fn, num_parallel_calls=num_parallel_calls, **kwargs)
+        else:
+            return super().map(
+                parallel_vmap(fn, num_parallel_calls=num_parallel_calls),
+                num_parallel_calls=num_parallel_calls,
+                **kwargs,
+            )
 
     def flatten(self, *, num_parallel_calls=tf.data.AUTOTUNE) -> "DLataset":
         """Flattens the dataset of trajectories into a dataset of frames."""
