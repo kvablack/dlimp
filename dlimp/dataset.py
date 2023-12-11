@@ -199,12 +199,13 @@ class DLataset(tf.data.Dataset):
         """Flattens the dataset of trajectories into a dataset of frames."""
         if self.is_flattened:
             raise ValueError("Dataset is already flattened.")
-        self.is_flattened = True
-        return self.interleave(
+        dataset = self.interleave(
             lambda traj: tf.data.Dataset.from_tensor_slices(traj),
             cycle_length=num_parallel_calls,
             num_parallel_calls=num_parallel_calls,
         )
+        dataset.is_flattened = True
+        return dataset
 
     def iterator(self, *, prefetch=tf.data.AUTOTUNE):
         if prefetch == 0:
