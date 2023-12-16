@@ -11,6 +11,6 @@ pip install -e .
 ```
 
 ## Usage
-Core usage is through the `DLataset` class, defined in `dlimp/dlimp/dataset.py`. It is a thin wrapper around `tf.data.Dataset` designed for working with datasets of trajectories; it has two creation methods, `from_tfrecords` and `from_rlds`. This library additionally provides a suite of *frame-level* and *trajectory-level* transforms designed to be used with `DLataset.frame_map` and `DLataset.map`, respectively.
+Core usage is through the `DLataset` class, defined in `dlimp/dlimp/dataset.py`. It is a thin wrapper around `tf.data.Dataset` designed for working with datasets of trajectories; it has two creation methods, `from_tfrecords` and `from_rlds`. This library additionally provides a suite of *frame-level* and *trajectory-level* transforms designed to be used with `DLataset.frame_map` and `DLataset.traj_map`, respectively.
 
 Scripts for converting various datasets to the dlimp TFRecord format (compatible with `DLataset.from_tfrecords`) can be found in `scripts/`.
